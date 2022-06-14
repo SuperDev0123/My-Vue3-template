@@ -1,0 +1,313 @@
+<template>
+  <div :class="treepickerCls" :disabled="disabled">
+    <div class="h-treepicker-show" :class="showCls">
+      <template v-if="multiple && objects.length">
+        <div v-if="showCount" class="h-treepicker-value-single">{{ hlang('h.treepicker.selectDesc', [valuebak.length]) }}</div>
+        <div v-else class="h-treepicker-multiple-tags">
+          <span v-for="obj of objects" :key="obj[param.keyName]">
+            <span>{{ obj[param.titleName] }}</span>
+            <i v-if="!disabled" class="h-icon-close-min" @click.stop="remove(obj)"></i>
+          </span>
+        </div>
+      </template>
+      <div v-else-if="!multiple && object" class="h-treepicker-value-single">{{ object[param.titleName] }}</div>
+      <div v-else class="h-treepicker-placeholder">{{ placeholder }}</div>
+      <i class="h-icon-down"></i>
+    </div>
+    <div class="h-treepicker-group" :class="groupCls">
+      <div class="h-treepicker-body">
+        <Tree
+          ref="tree"
+          v-model="valuebak"
+          :toggle-on-select="toggleOnSelect"
+          :option="option"
+          :multiple="multiple"
+          :choose-mode="chooseMode"
+          :filterable="filterable"
+          :config="config"
+          @loadDataSuccess="loadDataSuccess"
+          @select="select"
+          @choose="choose"
+        ></Tree>
+      </div>
+      <div v-if="multiple || useConfirm" class="h-treepicker-footer">
+        <button type="button" class="h-btn h-btn-text h-btn-s" @click="clear">{{ hlang('h.common.clear') }}</button>
+        <button type="button" class="h-btn h-btn-primary h-btn-s" @click="confirm">{{ hlang('h.common.confirm') }}</button>
+      </div>
+    </div>
+  </div>
+</template>
+<script>
+import config from 'heyui/utils/config';
+import utils from 'heyui/utils/utils';
+import Dropdown from 'heyui/plugins/dropdown';
+
+import Tree from 'heyui/components/tree';
+
+const prefix = 'h-treepicker';
+
+export default {
+  name: 'HTreePicker',
+  component: {
+    Tree
+  },
+  emits: ['select', 'choose', 'update:modelValue', 'change', 'input', 'loadDataSuccess'],
+  props: {
+    option: Object,
+    multiple: {
+      type: Boolean,
+      default: false
+    },
+    type: {
+      type: [String],
+      default: 'key'
+    },
+    disabled: {
+      type: Boolean,
+      default: false
+    },
+    limit: Number,
+    placeholder: {
+      type: String
+    },
+    filterable: {
+      type: Boolean,
+      default: false
+    },
+    chooseMode: {
+      type: String,
+      default: 'all'
+    },
+    showCount: {
+      type: Boolean,
+      default: false
+    },
+    toggleOnSelect: {
+      type: Boolean,
+      default: true
+    },
+    modelValue: [Number, String, Array, Object],
+    config: String,
+    className: String,
+    useConfirm: {
+      type: Boolean,
+      default: false
+    }
+  },
+  data() {
+    return {
+      objects: [],
+      object: null,
+      dropdown: null,
+      valuebak: null,
+      stashObject: null
+    };
+  },
+  computed: {
+    param() {
+      if (this.config) {
+        return utils.extend({}, config.getOption('tree.default'), config.getOption(`tree.configs.${this.config}`), this.option);
+      } else {
+        return utils.extend({}, config.getOption('tree.default'), this.option);
+      }
+    },
+    showCls() {
+      return {
+        [`${this.className}-show`]: !!this.className
+      };
+    },
+    groupCls() {
+      return {
+        [`${this.className}-dropdown`]: !!this.className
+      };
+    },
+    treepickerCls() {
+      return {
+        [`${prefix}`]: true,
+        [`${prefix}-input-border`]: true,
+        [`${prefix}-no-autosize`]: true,
+        [`${prefix}-multiple`]: this.multiple,
+        [`${prefix}-disabled`]: this.disabled
+      };
+    }
+  },
+  watch: {
+    modelValue() {
+      this.parse();
+    },
+    disabled() {
+      if (!this.dropdown) {
+        return false;
+      }
+
+      if (this.disabled) {
+        this.dropdown.disabled();
+      } else {
+        this.dropdown.enabled();
+      }
+    }
+  },
+  beforeUnmount() {
+    let el = this.el;
+    if (el) {
+      el.style.display = 'none';
+      this.$el.appendChild(el);
+    }
+    if (this.dropdown) {
+      this.dropdown.destory();
+    }
+  },
+  mounted() {
+    this.parse();
+    this.$nextTick(() => {
+      if (this.inline) return;
+      let el = (this.el = this.$el.querySelector(`.${prefix}>.h-treepicker-show`));
+      let content = this.$el.querySelector(`.h-treepicker-group`);
+
+      this.dropdown = new Dropdown(el, {
+        trigger: 'click',
+        content,
+        disabled: this.disabled
+      });
+
+      if (this.disabled) {
+        this.dropdown.disabled();
+      }
+    });
+  },
+  methods: {
+    refresh() {
+      if (this.$refs.tree) {
+        return this.$refs.tree.refresh();
+      }
+    },
+    loadDataSuccess() {
+      this.parse();
+      this.$emit('loadDataSuccess');
+    },
+    getChoose() {
+      if (this.$refs.tree) {
+        return this.$refs.tree.getChoose();
+      }
+      return [];
+    },
+    getFullChoose() {
+      if (this.$refs.tree) {
+        return this.$refs.tree.getFullChoose();
+      }
+      return [];
+    },
+    select(data) {
+      this.stashObject = data;
+      if (!this.multiple && !this.useConfirm) {
+        this.confirm(data);
+      }
+    },
+    choose(data) {
+      this.objects = data;
+      this.$emit('choose', data);
+      if (this.multiple) this.setvalue();
+    },
+    chooseAll() {
+      if (this.$refs.tree) {
+        this.$refs.tree.chooseAll();
+      }
+    },
+    remove(obj) {
+      let index = this.objects.indexOf(obj);
+      this.objects.splice(index, 1);
+      this.valuebak.splice(index, 1);
+      this.setvalue();
+      this.triggerChange();
+    },
+    updateShow(data) {
+      if (utils.isObject(data) && !this.multiple) {
+        this.object = data;
+      }
+      if (utils.isArray(data) && this.multiple) {
+        this.objects = data;
+      }
+      this.setvalue();
+    },
+    parse() {
+      if (this.type == 'key') {
+        this.valuebak = utils.copy(this.modelValue);
+        this.$nextTick(() => {
+          if (this.multiple) {
+            this.objects = this.$refs.tree.getChoose();
+          } else {
+            this.object = this.$refs.tree.getSelect();
+          }
+        });
+      } else {
+        if (this.multiple) {
+          this.valuebak = (this.modelValue || []).map(item => item[this.param.keyName]);
+          this.objects = utils.copy(this.modelValue);
+        } else {
+          this.valuebak = this.modelValue ? this.modelValue[this.param.keyName] : null;
+          this.object = utils.copy(this.modelValue);
+        }
+      }
+    },
+    dispose() {
+      if (this.multiple) {
+        return this.objects
+          .map(item => (this.type == 'key' ? item[this.param.keyName] : item))
+          .filter(item => {
+            return item !== undefined;
+          });
+      } else if (this.object) {
+        return this.type == 'key' ? this.object[this.param.keyName] : this.object;
+      }
+      return null;
+    },
+    clear() {
+      this.stashObject = null;
+      this.objects = [];
+      this.$refs.tree.searchTree(null);
+      this.confirm();
+    },
+    confirm() {
+      if (!this.multiple) {
+        this.object = this.stashObject;
+        this.$emit('select', this.object);
+      }
+      this.setvalue();
+      this.triggerChange();
+      this.dropdown.hide();
+    },
+    setvalue() {
+      let value = this.dispose();
+      this.$emit('input', value);
+      this.$emit('update:modelValue', value);
+      this.stashObject = this.object;
+      let event = document.createEvent('CustomEvent');
+      event.initCustomEvent('setvalue', true, true, value);
+      this.$el.dispatchEvent(event);
+      this.$nextTick(() => {
+        if (this.dropdown) this.dropdown.update();
+      });
+    },
+    triggerChange() {
+      this.$nextTick(() => {
+        this.$emit('change', utils.copy(this.multiple ? this.objects : this.object));
+      });
+    },
+    expandAll() {
+      if (this.$refs.tree) {
+        return this.$refs.tree.expandAll();
+      }
+    },
+    expand(data) {
+      if (this.$refs.tree) {
+        return this.$refs.tree.expand(data);
+      }
+    },
+    foldAll() {
+      if (this.$refs.tree) {
+        return this.$refs.tree.foldAll();
+      }
+    }
+  }
+};
+</script>
